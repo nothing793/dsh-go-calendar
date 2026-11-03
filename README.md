@@ -75,9 +75,14 @@ dsh plugin --profile web add /root/workspace/dsh-zju-assistant-0.1.2-local.tgz
 ### 3. 手机 WebView
 
 插件设置页（填学号、密码）只在 DSH 网页界面里。系统 WebView 低于 Chrome 116 时，
-网页界面会因为缺 `Promise.withResolvers` / `AbortSignal.any` 一直停在「重新连接中…」。
-dsh-go 现在会在页面加载前注入 polyfill（`app/assets/web/dsh_web_compat.js`，通过
-`WebViewCompat.addDocumentStartJavaScript`），旧 WebView 也能用。
+网页界面会因为缺 `Promise.withResolvers` / `AbortSignal.any` 一直停在「重新连接中…」，
+设置页也就打不开。
+
+处理办法是 dsh-go 在页面加载前注入 polyfill（`app/assets/web/dsh_web_compat.js`，通过
+`WebViewCompat.addDocumentStartJavaScript`）。**这份改动还没提交到 dsh-go 仓库，也没有进
+任何 release**，官方的 dsh-go APK 里没有。用官方包时装完插件，组件和开关都在，但点不进
+设置页，填不了学号密码。要绕开这一点，得自己按 dsh-go 的构建流程把这段注入带进去，或者
+等改动进入 dsh-go 的发布版本。
 
 ## 验证情况
 
