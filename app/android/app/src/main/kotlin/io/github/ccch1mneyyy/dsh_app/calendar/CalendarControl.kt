@@ -75,9 +75,9 @@ class CalendarControl private constructor(private val app: Context) : CalendarEn
         return true
     }
 
-    override fun upsert(event: CalendarEvent, calendarId: Long): CalendarWriteResult {
+    override fun upsert(event: CalendarEvent, calendarId: Long, existingId: Long?): CalendarWriteResult {
         return try {
-            store.upsert(event, calendarId)
+            store.upsert(event, calendarId, existingId)
         } catch (e: SecurityException) {
             CalendarWriteResult(false, "DSH 没有手机日历权限。请用户到 设置 → 日历 里允许访问。")
         } catch (e: Exception) {
@@ -92,6 +92,18 @@ class CalendarControl private constructor(private val app: Context) : CalendarEn
     } catch (e: Exception) {
         CalendarWriteResult(false, "删除手机日历事件失败：${e.javaClass.simpleName}${e.message?.let { "：$it" } ?: ""}")
     }
+
+    override fun removeEvent(eventId: Long): CalendarWriteResult = try {
+        store.removeEvent(eventId)
+    } catch (e: SecurityException) {
+        CalendarWriteResult(false, "DSH 没有手机日历权限。请用户到 设置 → 日历 里允许访问。")
+    } catch (e: Exception) {
+        CalendarWriteResult(false, "删除手机日历事件失败：${e.javaClass.simpleName}${e.message?.let { "：$it" } ?: ""}")
+    }
+
+    override fun owned(scope: String?, calendarId: Long?): List<OwnedCalendarEvent> = store.owned(scope, calendarId)
+
+    override fun planDir(): File? = rootfs?.let { CalendarGuest.planDir(it) }
 
     override fun zone(): ZoneId = ZoneId.systemDefault()
 

@@ -24,6 +24,8 @@ class CalendarGuestTest {
             assertTrue(patch.isFile)
             assertTrue(patch.readText().contains("serverName: calendar"))
             assertTrue(CalendarGuest.AGENTS_SECTION.contains("mcp__calendar__upsert"))
+            assertTrue(CalendarGuest.AGENTS_SECTION.contains("mcp__calendar__sync"))
+            assertTrue(CalendarGuest.AGENTS_SECTION.contains("mcp__calendar__list_owned"))
             CalendarGuest.writeConfig(root, io.github.ccch1mneyyy.dsh_app.phone.PhoneGuest.Endpoint("test", null, "token"))
             val config = File(root, CalendarGuest.CONFIG.removePrefix("/"))
             assertTrue(config.isFile)

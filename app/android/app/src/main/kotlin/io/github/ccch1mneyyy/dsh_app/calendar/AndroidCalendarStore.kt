@@ -50,24 +50,132 @@ class AndroidCalendarStore(private val context: Context) : CalendarApi {
         return out.sortedWith(compareByDescending<CalendarInfo> { it.primary }.thenBy { it.name })
     }
 
-    override fun upsert(event: CalendarEvent, calendarId: Long): CalendarWriteResult {
-        val existing = find(event.key)
-        return if (existing == null) insert(event, calendarId) else update(existing, event, calendarId)
+    override fun upsert(event: CalendarEvent, calendarId: Long, existingId: Long?): CalendarWriteResult {
+        val id = existingId ?: find(event.key)
+        return if (id == null) insert(event, calendarId) else update(id, event, calendarId)
     }
 
     override fun remove(key: String, calendarId: Long?): CalendarWriteResult {
         val id = find(key, calendarId) ?: return CalendarWriteResult(true, "没有找到带这个 key 的 DSH 日历事件，可能已经删掉了。", removed = 0)
+        return removeEvent(id)
+    }
+
+    override fun removeEvent(eventId: Long): CalendarWriteResult {
         resolver.delete(
             CalendarContract.Reminders.CONTENT_URI,
             "${CalendarContract.Reminders.EVENT_ID}=?",
-            arrayOf(id.toString()),
+            arrayOf(eventId.toString()),
         )
-        val removed = resolver.delete(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, id), null, null)
+        val removed = resolver.delete(ContentUris.withAppendedId(CalendarContract.Events.CONTENT_URI, eventId), null, null)
         return CalendarWriteResult(
             ok = true,
             message = if (removed > 0) "已从手机日历删除这条 DSH 事件。" else "事件已经不在了。",
             removed = if (removed > 0) 1 else 0,
         )
+    }
+
+    override fun owned(scope: String?, calendarId: Long?): List<OwnedCalendarEvent> {
+        val projection = arrayOf(
+            CalendarContract.Events._ID,
+            CalendarContract.Events.CALENDAR_ID,
+            CalendarContract.Events.TITLE,
+            CalendarContract.Events.DTSTART,
+            CalendarContract.Events.DTEND,
+            CalendarContract.Events.ALL_DAY,
+            CalendarContract.Events.EVENT_TIMEZONE,
+            CalendarContract.Events.EVENT_LOCATION,
+            CalendarContract.Events.DESCRIPTION,
+            CalendarContract.Events.CUSTOM_APP_URI,
+        )
+        val selection = StringBuilder("${CalendarContract.Events.CUSTOM_APP_PACKAGE}=?")
+        val args = ArrayList<String>(2)
+        args += packageName
+        if (calendarId != null) {
+            selection.append(" AND ${CalendarContract.Events.CALENDAR_ID}=?")
+            args += calendarId.toString()
+        }
+        val prefix = scope?.let { "$it:" }
+        val rows = ArrayList<Row>()
+        resolver.query(
+            CalendarContract.Events.CONTENT_URI,
+            projection,
+            selection.toString(),
+            args.toTypedArray(),
+            "${CalendarContract.Events.DTSTART} ASC",
+        )?.use { cursor ->
+            val idCol = cursor.getColumnIndex(CalendarContract.Events._ID)
+            val calendarCol = cursor.getColumnIndex(CalendarContract.Events.CALENDAR_ID)
+            val titleCol = cursor.getColumnIndex(CalendarContract.Events.TITLE)
+            val beginCol = cursor.getColumnIndex(CalendarContract.Events.DTSTART)
+            val endCol = cursor.getColumnIndex(CalendarContract.Events.DTEND)
+            val allDayCol = cursor.getColumnIndex(CalendarContract.Events.ALL_DAY)
+            val zoneCol = cursor.getColumnIndex(CalendarContract.Events.EVENT_TIMEZONE)
+            val locationCol = cursor.getColumnIndex(CalendarContract.Events.EVENT_LOCATION)
+            val descriptionCol = cursor.getColumnIndex(CalendarContract.Events.DESCRIPTION)
+            val uriCol = cursor.getColumnIndex(CalendarContract.Events.CUSTOM_APP_URI)
+            if (idCol < 0 || calendarCol < 0 || beginCol < 0 || uriCol < 0) return@use
+            while (cursor.moveToNext()) {
+                val key = keyOf(if (uriCol >= 0) cursor.getString(uriCol) else null) ?: continue
+                if (prefix != null && !key.startsWith(prefix)) continue
+                val begin = if (cursor.isNull(beginCol)) 0L else cursor.getLong(beginCol)
+                val end = if (endCol < 0 || cursor.isNull(endCol)) begin else cursor.getLong(endCol)
+                val allDay = allDayCol >= 0 && cursor.getInt(allDayCol) == 1
+                rows += Row(
+                    eventId = cursor.getLong(idCol),
+                    calendarId = cursor.getLong(calendarCol),
+                    key = key,
+                    title = if (titleCol >= 0) cursor.getString(titleCol).orEmpty() else "",
+                    beginMs = begin,
+                    endMs = end,
+                    allDay = allDay,
+                    timezone = (if (zoneCol >= 0) cursor.getString(zoneCol) else null)
+                        ?.takeIf { it.isNotBlank() }
+                        ?: if (allDay) "UTC" else java.time.ZoneId.systemDefault().id,
+                    location = if (locationCol >= 0) cursor.getString(locationCol) else null,
+                    description = if (descriptionCol >= 0) cursor.getString(descriptionCol) else null,
+                )
+            }
+        }
+        if (rows.isEmpty()) return emptyList()
+        val reminders = reminders(rows.map { it.eventId })
+        return rows.map {
+            OwnedCalendarEvent(
+                eventId = it.eventId,
+                calendarId = it.calendarId,
+                key = it.key,
+                title = it.title,
+                beginMs = it.beginMs,
+                endMs = it.endMs,
+                allDay = it.allDay,
+                timezone = it.timezone,
+                location = it.location,
+                description = it.description,
+                reminderMinutes = reminders[it.eventId] ?: emptyList(),
+            )
+        }
+    }
+
+    private fun reminders(eventIds: List<Long>): Map<Long, List<Int>> {
+        val out = HashMap<Long, MutableList<Int>>()
+        for (chunk in eventIds.chunked(400)) {
+            val placeholders = chunk.joinToString(",") { "?" }
+            resolver.query(
+                CalendarContract.Reminders.CONTENT_URI,
+                arrayOf(CalendarContract.Reminders.EVENT_ID, CalendarContract.Reminders.MINUTES),
+                "${CalendarContract.Reminders.EVENT_ID} IN ($placeholders)",
+                chunk.map { it.toString() }.toTypedArray(),
+                null,
+            )?.use { cursor ->
+                val eventCol = cursor.getColumnIndex(CalendarContract.Reminders.EVENT_ID)
+                val minuteCol = cursor.getColumnIndex(CalendarContract.Reminders.MINUTES)
+                if (eventCol < 0 || minuteCol < 0) return@use
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(eventCol)
+                    out.getOrPut(id) { ArrayList() } += cursor.getInt(minuteCol)
+                }
+            }
+        }
+        return out.mapValues { (_, value) -> value.distinct().sorted() }
     }
 
     private fun insert(event: CalendarEvent, calendarId: Long): CalendarWriteResult {
@@ -150,4 +258,23 @@ class AndroidCalendarStore(private val context: Context) : CalendarApi {
     }
 
     private fun customUri(key: String): String = "dsh-calendar://event/${Uri.encode(key)}"
+
+    private fun keyOf(uri: String?): String? {
+        val prefix = "dsh-calendar://event/"
+        if (uri == null || !uri.startsWith(prefix)) return null
+        return runCatching { Uri.decode(uri.removePrefix(prefix)) }.getOrNull()
+    }
+
+    private data class Row(
+        val eventId: Long,
+        val calendarId: Long,
+        val key: String,
+        val title: String,
+        val beginMs: Long,
+        val endMs: Long,
+        val allDay: Boolean,
+        val timezone: String,
+        val location: String?,
+        val description: String?,
+    )
 }

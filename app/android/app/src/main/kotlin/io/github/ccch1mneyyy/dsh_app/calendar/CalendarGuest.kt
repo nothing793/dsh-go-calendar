@@ -16,6 +16,7 @@ object CalendarGuest {
     const val PATCH = "$GUEST_DIR/calendar.patch.yml"
     const val STATE_DIR = "/var/lib/dsh-app/calendar"
     const val CONFIG = "$STATE_DIR/bridge.json"
+    const val PLAN_DIR = "/root/.dsh/zju-campus/calendar-plans"
     const val SERVER_NAME = "calendar"
     const val TOOL_CALL_TIMEOUT_MS = 30_000L
 
@@ -52,7 +53,8 @@ object CalendarGuest {
         |
         |## 手机日历
         |
-        |- 用 `mcp__calendar__list` 查可写日历，`mcp__calendar__upsert` 新增或更新事件，`mcp__calendar__remove` 删除事件。
+        |- 用 `mcp__calendar__list` 查可写日历。单条事件用 `mcp__calendar__upsert` / `mcp__calendar__remove`；整学期计划用 `mcp__calendar__sync`，先用 `dry_run: true` 把新增、更新、删除条数和警告给用户看，用户明确确认后再用 `dry_run: false` 和返回的 `token` 写入。不要逐条 upsert 几百条事件。
+        |- `mcp__calendar__list_owned` 只列出本 App 写入的事件，用来核对同步结果。不要读或改用户自己建的事件。
         |- 同一件事始终用同一个 `key`；更新不会重复建事件。只操作带 DSH 标识的事件，不读用户日历里的其他内容。
         |- 只在用户明确要写手机日历时用；日程时间按手机时区写，全天事件写 `2026-11-05` 这样的日期。
         |""".trimMargin()
@@ -74,6 +76,9 @@ object CalendarGuest {
         } catch (_: Exception) {
         }
     }
+
+    /** The plan directory the campus plugin writes to ($DSH_HOME/zju-campus/calendar-plans). */
+    fun planDir(rootfs: File): File = guestFile(rootfs, PLAN_DIR)
 
     fun guestFile(rootfs: File, guestPath: String): File = File(rootfs, guestPath.removePrefix("/"))
 

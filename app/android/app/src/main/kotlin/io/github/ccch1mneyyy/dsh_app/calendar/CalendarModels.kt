@@ -1,5 +1,6 @@
 package io.github.ccch1mneyyy.dsh_app.calendar
 
+import java.io.File
 import java.time.ZoneId
 
 /** One writable calendar the person can choose. */
@@ -32,6 +33,33 @@ data class CalendarEvent(
     val reminderMinutes: List<Int>,
 )
 
+/** An event that this App wrote, read back from Calendar Provider. */
+data class OwnedCalendarEvent(
+    val eventId: Long,
+    val calendarId: Long,
+    val key: String,
+    val title: String,
+    val beginMs: Long,
+    val endMs: Long,
+    val allDay: Boolean,
+    val timezone: String,
+    val location: String?,
+    val description: String?,
+    val reminderMinutes: List<Int>,
+) {
+    fun toEvent(): CalendarEvent = CalendarEvent(
+        key = key,
+        title = title,
+        beginMs = beginMs,
+        endMs = endMs,
+        allDay = allDay,
+        timezone = timezone,
+        location = location,
+        description = description,
+        reminderMinutes = reminderMinutes.distinct().sorted(),
+    )
+}
+
 class CalendarWriteResult(
     val ok: Boolean,
     val message: String,
@@ -43,8 +71,10 @@ class CalendarWriteResult(
 /** Device operations, faked by JVM tests. */
 interface CalendarApi {
     fun calendars(): List<CalendarInfo>
-    fun upsert(event: CalendarEvent, calendarId: Long): CalendarWriteResult
+    fun upsert(event: CalendarEvent, calendarId: Long, existingId: Long? = null): CalendarWriteResult
     fun remove(key: String, calendarId: Long?): CalendarWriteResult
+    fun removeEvent(eventId: Long): CalendarWriteResult
+    fun owned(scope: String?, calendarId: Long?): List<OwnedCalendarEvent>
 }
 
 /** What [CalendarCore] needs; [CalendarControl] implements it on the phone. */
@@ -53,7 +83,10 @@ interface CalendarEnv {
     fun hasPermission(): Boolean
     fun calendars(): List<CalendarInfo>
     fun selected(): CalendarInfo?
-    fun upsert(event: CalendarEvent, calendarId: Long): CalendarWriteResult
+    fun upsert(event: CalendarEvent, calendarId: Long, existingId: Long? = null): CalendarWriteResult
     fun remove(key: String, calendarId: Long?): CalendarWriteResult
+    fun removeEvent(eventId: Long): CalendarWriteResult
+    fun owned(scope: String?, calendarId: Long?): List<OwnedCalendarEvent>
+    fun planDir(): File?
     fun zone(): ZoneId
 }

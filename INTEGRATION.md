@@ -8,6 +8,8 @@
   - 增加 `READ_CALENDAR`、`WRITE_CALENDAR`
 - `app/android/app/src/main/kotlin/io/github/ccch1mneyyy/dsh_app/MainActivity.kt`
   - 注册 `CalendarPlugin`
+- `app/android/app/src/main/kotlin/io/github/ccch1mneyyy/dsh_app/phone/SystemApi.kt`
+  - `Args.raw`：让 `CalendarCore` 严格读取计划文件里的数组
 - `app/android/app/src/main/kotlin/io/github/ccch1mneyyy/dsh_app/runtime/GuestSetup.kt`
   - `writeAgentsMd()` 增加 `calendarControl`
   - 开启时追加 `CalendarGuest.AGENTS_SECTION`
